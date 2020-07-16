@@ -12,6 +12,5 @@ export async function showJobLogs(context: IActionContext, node?: JobTreeItem | 
     if (!node) {
         node = await ext.tree.showTreeItemPicker<JobTreeItem>(JobTreeItem.contextValue, context);
     }
-
     await node.showLogs();
 }

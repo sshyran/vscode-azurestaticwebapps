@@ -17,6 +17,7 @@ import { localize } from '../utils/localize';
 import { treeUtils } from "../utils/treeUtils";
 import { ActionsTreeItem } from "./ActionsTreeItem";
 import { GitHubJob, JobTreeItem } from './JobTreeItem';
+import { SkippedJobTreeItem } from './SkippedJobTreeItem';
 
 export type GitHubAction = {
     id: string; conclusion: 'success' | 'failure' | 'skip' | 'cancelled' | null;
@@ -68,7 +69,11 @@ export class ActionTreeItem extends AzureParentTreeItem {
         const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(requestOption);
         const gitHubJobs: { jobs: GitHubJob[] } = <{ jobs: GitHubJob[] }>JSON.parse(githubResponse.body);
         return gitHubJobs.jobs.map((job => {
-            return new JobTreeItem(this, job);
+            if (job.conclusion === 'skipped') {
+                return new SkippedJobTreeItem(this, job);
+            } else {
+                return new JobTreeItem(this, job);
+            }
         }));
     }
     public hasMoreChildrenImpl(): boolean {

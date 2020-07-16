@@ -11,6 +11,7 @@ import { AzExtTreeItem, AzureParentTreeItem, IActionContext, openReadOnlyContent
 import { githubApiEndpoint } from '../constants';
 import { createGitHubRequestOptions, getRepoFullname } from '../utils/gitHubUtils';
 import { localize } from '../utils/localize';
+import { logsUtils } from '../utils/logsUtils';
 import { treeUtils } from "../utils/treeUtils";
 import { ActionTreeItem } from './ActionTreeItem';
 import { GitHubStep, StepTreeItem } from './StepTreeItem';
@@ -39,9 +40,14 @@ export class JobTreeItem extends AzureParentTreeItem {
     public parent: ActionTreeItem;
     public data: GitHubJob;
 
+    private readonly _startedDate: Date;
+    private readonly _completedDate: Date;
+
     constructor(parent: ActionTreeItem, data: GitHubJob) {
         super(parent);
         this.data = data;
+        this._startedDate = new Date(this.data.started_at);
+        this._completedDate = new Date(this.data.completed_at);
     }
 
     public get iconPath(): TreeItemIconPath {
@@ -61,7 +67,7 @@ export class JobTreeItem extends AzureParentTreeItem {
     }
 
     public get description(): string {
-        return this.data.conclusion;
+        return logsUtils.getTimeElapsedString(this._startedDate, this._completedDate);
     }
 
     public async loadMoreChildrenImpl(_clearCache: boolean, _context: IActionContext): Promise<AzExtTreeItem[]> {
@@ -88,12 +94,24 @@ export class JobTreeItem extends AzureParentTreeItem {
         const { owner, name } = getRepoFullname(this.parent.parent.repositoryUrl);
         const gitHubRequest: gitHubWebResource = await createGitHubRequestOptions(undefined, `${githubApiEndpoint}/repos/${owner}/${name}/actions/jobs/${this.data.id}/logs`);
         const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(gitHubRequest);
-        return githubResponse.body;
+        return this.formatGitHubActionsLogs(githubResponse.body);
     }
 
     public async showLogs(): Promise<void> {
         await this.runWithTemporaryDescription(localize('loadingLogs', 'Loading Job logs...'), async (): Promise<void> => {
-            await openReadOnlyContent(this, await this.getLogs(), '.log');
+            await openReadOnlyContent(this, await this.getLogs(), '');
         });
+    }
+
+    // For now we will remove the custom GitHub Actions log formatting. Later on we should add editor decoritation support.
+    private formatGitHubActionsLogs(logs: string): string {
+        const ansiColorRE: RegExp = /\u001b\[((?:\d+;?)+)m(.*)\u001b\[0m/gm;
+        const groupMarker: string = '##[group]';
+        const commandRE: RegExp = /##\[[a-z]+\]/gm;
+
+        return logs
+            .replace(ansiColorRE, '')
+            .replace(groupMarker, '')
+            .replace(commandRE, '');
     }
 }

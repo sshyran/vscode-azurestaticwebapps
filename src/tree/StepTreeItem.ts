@@ -8,6 +8,7 @@ import { window } from 'vscode';
 import { AzureTreeItem, openReadOnlyContent, TreeItemIconPath } from "vscode-azureextensionui";
 import { ext } from '../extensionVariables';
 import { localize } from '../utils/localize';
+import { logsUtils } from '../utils/logsUtils';
 import { treeUtils } from "../utils/treeUtils";
 import { JobTreeItem } from './JobTreeItem';
 
@@ -28,9 +29,14 @@ export class StepTreeItem extends AzureTreeItem {
     public parent: JobTreeItem;
     public data: GitHubStep;
 
+    private readonly _startedDate: Date;
+    private readonly _completedDate: Date;
+
     constructor(parent: JobTreeItem, data: GitHubStep) {
         super(parent);
         this.data = data;
+        this._startedDate = new Date(this.data.started_at);
+        this._completedDate = new Date(this.data.completed_at);
     }
 
     public get iconPath(): TreeItemIconPath {
@@ -50,42 +56,33 @@ export class StepTreeItem extends AzureTreeItem {
     }
 
     public get description(): string {
-        const startDate: Date = new Date(this.data.started_at);
-        const completeDate: Date = new Date(this.data.completed_at);
-        const timeToComplete: number = (completeDate.getTime() - startDate.getTime()) / 1000;
-        if (timeToComplete > 59) {
-            const minutes: number = Math.floor(timeToComplete / 60);
-            const seconds: number = timeToComplete - minutes * 60;
-            return `${this.data.conclusion} in ${minutes}m ${seconds}s`;
-        } else {
-            return `${this.data.conclusion} in ${timeToComplete}s`;
-        }
+        return logsUtils.getTimeElapsedString(this._startedDate, this._completedDate);
     }
 
     public get commandId(): string {
-        if (this.data.conclusion !== 'skipped') {
-            return `${ext.prefix}.showJobLogs`;
-        } else {
-            return '';
-        }
+        return `${ext.prefix}.showJobLogs`;
     }
 
     public async showLogs(): Promise<void> {
-        const logs: string = await this.parent.getLogs();
-        const startDate: Date = new Date(this.data.started_at);
-        const completeDate: Date = new Date(this.data.completed_at);
-        const lines: string[] = logs.split('\n').filter((line: string): boolean => {
-            return startDate < this.getTimestamp(line) && completeDate > this.getTimestamp(line);
+        await this.runWithTemporaryDescription(localize('loadingStepLogs', 'Loading Step logs...'), async (): Promise<void> => {
+            const stepLogs: string = await this.getStepLogs();
+            if (stepLogs.length < 1) {
+                window.showInformationMessage(localize('noLogsForStep', 'There are no logs for this step.'));
+            } else {
+                await openReadOnlyContent(this, stepLogs, '');
+            }
         });
-        const str: string = lines.join('\n');
-        if (str.length < 1) {
-            window.showInformationMessage(localize('noLogsForStep', 'There are no logs for this step.'));
-        } else {
-            await openReadOnlyContent(this, str, '.log');
-        }
     }
 
-    private getTimestamp(line: string): Date {
-        return new Date(line.split(' ')[0]);
+    private async getStepLogs(): Promise<string> {
+        const jobLogs: string = await this.parent.getLogs();
+
+        // only get logs that are between the start and end time for this step
+        return jobLogs
+            .split(/\n|\r/)
+            .filter((line: string): boolean => {
+                return this._startedDate < logsUtils.getTimestamp(line) && this._completedDate > logsUtils.getTimestamp(line);
+            })
+            .join('\n');
     }
 }
