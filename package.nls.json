@@ -1,4 +1,5 @@
 {
+    "staticWebApps.showJobLogs": "Show Job Logs...",
     "staticWebApps.createStaticWebApp": "Create Static Web App...",
     "staticWebApps.deleteStaticWebApp": "Delete...",
     "staticWebApps.description": "An Azure Static Web Apps (Preview) extension for Visual Studio Code.",

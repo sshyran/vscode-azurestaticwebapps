@@ -62,6 +62,15 @@
                 }
             },
             {
+                "command": "staticWebApps.showJobLogs",
+                "title": "%staticWebApps.showJobLogs%",
+                "category": "Azure Static Web Apps",
+                "icon": {
+                    "light": "resources/light/list-unordered.svg",
+                    "dark": "resources/dark/list-unordered.svg"
+                }
+            },
+            {
                 "command": "staticWebApps.deleteStaticWebApp",
                 "title": "%staticWebApps.deleteStaticWebApp%",
                 "category": "Azure Static Web Apps"
@@ -247,6 +256,11 @@
                     "command": "staticWebApps.showActions",
                     "when": "view == staticWebApps && viewItem == azureStaticActions",
                     "group": "1@1"
+                },
+                {
+                    "command": "staticWebApps.showJobLogs",
+                    "when": "view == staticWebApps && viewItem == azureStaticJob",
+                    "group": "inline"
                 },
                 {
                     "command": "staticWebApps.cloneRepo",

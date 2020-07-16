@@ -5,12 +5,14 @@
 
 import { IncomingMessage } from 'ms-rest';
 import * as path from 'path';
-import { AzureTreeItem, TreeItemIconPath } from "vscode-azureextensionui";
-import { createGitHubRequestOptions, gitHubWebResource } from '../utils/gitHubUtils';
+import { AzExtTreeItem, AzureParentTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
+import { githubApiEndpoint } from '../constants';
+import { createGitHubRequestOptions, getRepoFullname, gitHubWebResource } from '../utils/gitHubUtils';
 import { requestUtils } from '../utils/requestUtils';
 import { treeUtils } from "../utils/treeUtils";
 import { ActionsTreeItem } from "./ActionsTreeItem";
 import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
+import { GitHubJob, JobTreeItem } from './JobTreeItem';
 
 export type GitHubAction = {
     id: string;
@@ -25,7 +27,8 @@ export type GitHubAction = {
     cancel_url: string;
 };
 
-export class ActionTreeItem extends AzureTreeItem implements IAzureResourceTreeItem {
+export class ActionTreeItem extends AzureParentTreeItem implements IAzureResourceTreeItem {
+
     public static contextValue: string = 'azureStaticAction';
     public readonly contextValue: string = ActionTreeItem.contextValue;
     public parent: ActionsTreeItem;
@@ -54,6 +57,19 @@ export class ActionTreeItem extends AzureTreeItem implements IAzureResourceTreeI
 
     public get description(): string {
         return this.data.event;
+    }
+
+    public async loadMoreChildrenImpl(_clearCache: boolean, context: IActionContext): Promise<AzExtTreeItem[]> {
+        const { owner, name } = getRepoFullname(this.parent.repositoryUrl);
+        const requestOption: gitHubWebResource = await createGitHubRequestOptions(context, `${githubApiEndpoint}/repos/${owner}/${name}/actions/runs/${this.data.id}/jobs`);
+        const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(requestOption);
+        const gitHubJobs: { jobs: GitHubJob[] } = <{ jobs: GitHubJob[] }>JSON.parse(githubResponse.body);
+        return gitHubJobs.jobs.map((job => {
+            return new JobTreeItem(this, job);
+        }));
+    }
+    public hasMoreChildrenImpl(): boolean {
+        return false;
     }
 
     public async refreshImpl(): Promise<void> {
