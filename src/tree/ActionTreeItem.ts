@@ -7,14 +7,16 @@ import { IncomingMessage } from 'ms-rest';
 import * as path from 'path';
 import { gitHubWebResource } from 'vscode-azureappservice/out/src/github/connectToGitHub';
 import { requestUtils } from 'vscode-azureappservice/out/src/utils/requestUtils';
-import { AzureTreeItem, TreeItemIconPath } from "vscode-azureextensionui";
+import { AzExtTreeItem, AzureParentTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
 import { IGitHubContext } from '../commands/github/IGitHubContext';
+import { githubApiEndpoint } from '../constants';
 import { ext } from '../extensionVariables';
 import { delay } from '../utils/delay';
-import { createGitHubRequestOptions } from '../utils/gitHubUtils';
+import { createGitHubRequestOptions, getRepoFullname } from '../utils/gitHubUtils';
 import { localize } from '../utils/localize';
 import { treeUtils } from "../utils/treeUtils";
 import { ActionsTreeItem } from "./ActionsTreeItem";
+import { GitHubJob, JobTreeItem } from './JobTreeItem';
 
 export type GitHubAction = {
     id: string; conclusion: 'success' | 'failure' | 'skip' | 'cancelled' | null;
@@ -28,7 +30,7 @@ export type GitHubAction = {
     cancel_url: string;
 };
 
-export class ActionTreeItem extends AzureTreeItem {
+export class ActionTreeItem extends AzureParentTreeItem {
 
     public static contextValue: string = 'azureStaticAction';
     public readonly contextValue: string = ActionTreeItem.contextValue;
@@ -58,6 +60,19 @@ export class ActionTreeItem extends AzureTreeItem {
 
     public get description(): string {
         return this.data.event;
+    }
+
+    public async loadMoreChildrenImpl(_clearCache: boolean, context: IActionContext): Promise<AzExtTreeItem[]> {
+        const { owner, name } = getRepoFullname(this.parent.repositoryUrl);
+        const requestOption: gitHubWebResource = await createGitHubRequestOptions(context, `${githubApiEndpoint}/repos/${owner}/${name}/actions/runs/${this.data.id}/jobs`);
+        const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(requestOption);
+        const gitHubJobs: { jobs: GitHubJob[] } = <{ jobs: GitHubJob[] }>JSON.parse(githubResponse.body);
+        return gitHubJobs.jobs.map((job => {
+            return new JobTreeItem(this, job);
+        }));
+    }
+    public hasMoreChildrenImpl(): boolean {
+        return false;
     }
 
     public async refreshImpl(): Promise<void> {
