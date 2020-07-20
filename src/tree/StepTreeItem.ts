@@ -3,25 +3,26 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from 'path';
-import { window } from 'vscode';
-import { AzExtTreeItem, openReadOnlyContent, TreeItemIconPath } from "vscode-azureextensionui";
-import { ext } from '../extensionVariables';
-import { localize } from '../utils/localize';
+import moment = require('moment');
+import { AzureTreeItem, TreeItemIconPath } from "vscode-azureextensionui";
+import { Conclusion, Status } from '../constants';
+import { convertConclusionToVerb, convertStatusToVerb } from '../utils/gitHubUtils';
+import { getTimeElapsedString } from '../utils/timeUtils';
 import { treeUtils } from "../utils/treeUtils";
+import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
 import { JobTreeItem } from './JobTreeItem';
 
 export type GitHubStep = {
     name: string;
-    status: string;
-    conclusion: string;
+    status: Status;
+    conclusion: Conclusion;
     // tslint:disable-next-line: no-reserved-keywords
     number: number;
     started_at: string;
     completed_at: string;
 };
 
-export class StepTreeItem extends AzExtTreeItem {
+export class StepTreeItem extends AzureTreeItem implements IAzureResourceTreeItem {
 
     public static contextValue: string = 'azureStaticStep';
     public readonly contextValue: string = StepTreeItem.contextValue;
@@ -34,11 +35,11 @@ export class StepTreeItem extends AzExtTreeItem {
     }
 
     public get iconPath(): TreeItemIconPath {
-        return this.data.conclusion ? treeUtils.getThemedIconPath(path.join('conclusions', this.data.conclusion)) : treeUtils.getThemedIconPath(path.join('statuses', this.data.status));
+        return treeUtils.getActionIconPath(this.data.status, this.data.conclusion);
     }
 
     public get id(): string {
-        return `${this.parent.parent.id}/${this.data.name}`;
+        return `${this.parent.id}/${this.data.name}`;
     }
 
     public get name(): string {
@@ -50,42 +51,19 @@ export class StepTreeItem extends AzExtTreeItem {
     }
 
     public get description(): string {
-        const startDate: Date = new Date(this.data.started_at);
-        const completeDate: Date = new Date(this.data.completed_at);
-        const timeToComplete: number = (completeDate.getTime() - startDate.getTime()) / 1000;
-        if (timeToComplete > 59) {
-            const minutes: number = Math.floor(timeToComplete / 60);
-            const seconds: number = timeToComplete - minutes * 60;
-            return `${this.data.conclusion} in ${minutes}m ${seconds}s`;
+        if (this.data.conclusion) {
+            const elapsedTime: string = getTimeElapsedString(this.startedDate, this.completedDate);
+            return `${convertConclusionToVerb(this.data.conclusion)} in ${elapsedTime}`;
         } else {
-            return `${this.data.conclusion} in ${timeToComplete}s`;
+            return `${convertStatusToVerb(this.data.status)} ${this.startedDate.getTime() === 0 ? '' : moment(this.startedDate).fromNow()}`;
         }
     }
 
-    public get commandId(): string {
-        if (this.data.conclusion !== 'skipped') {
-            return `${ext.prefix}.showJobLogs`;
-        } else {
-            return '';
-        }
+    private get startedDate(): Date {
+        return new Date(this.data.started_at);
     }
 
-    public async showLogs(): Promise<void> {
-        const logs: string = await this.parent.getLogs();
-        const startDate: Date = new Date(this.data.started_at);
-        const completeDate: Date = new Date(this.data.completed_at);
-        const lines: string[] = logs.split('\n').filter((line: string): boolean => {
-            return startDate < this.getTimestamp(line) && completeDate > this.getTimestamp(line);
-        });
-        const str: string = lines.join('\n');
-        if (str.length < 1) {
-            window.showInformationMessage(localize('noLogsForStep', 'There are no logs for this step.'));
-        } else {
-            await openReadOnlyContent(this, str, '.log');
-        }
-    }
-
-    private getTimestamp(line: string): Date {
-        return new Date(line.split(' ')[0]);
+    private get completedDate(): Date {
+        return new Date(this.data.completed_at);
     }
 }

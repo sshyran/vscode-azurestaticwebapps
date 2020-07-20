@@ -20,12 +20,10 @@ import { cancelAction, rerunAction } from './github/actionCommands';
 import { cloneRepo } from './github/cloneRepo';
 import { openGitHubRepo } from './github/openGitHubRepo';
 import { showActions } from './github/showActions';
-import { showJobLogs } from './github/showJobLogs';
 import { openInPortal } from './openInPortal';
 import { viewProperties } from './viewProperties';
 
 export function registerCommands(): void {
-    registerCommand('staticWebApps.showJobLogs', showJobLogs);
     registerCommand('staticWebApps.createStaticWebApp', createStaticWebApp);
     registerCommand('staticWebApps.deleteStaticWebApp', deleteStaticWebApp);
     registerCommand('staticWebApps.loadMore', async (context: IActionContext, node: AzureTreeItem) => await ext.tree.loadMore(node, context));

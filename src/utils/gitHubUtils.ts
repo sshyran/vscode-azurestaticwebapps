@@ -11,8 +11,8 @@ import * as git from 'simple-git/promise';
 import { isArray } from 'util';
 import * as vscode from 'vscode';
 import { IAzureQuickPickItem } from 'vscode-azureextensionui';
-import { IStaticWebAppWizardContext } from '../commands/createStaticWebApp/IStaticWebAppWizardContext';
-import { githubApiEndpoint } from '../constants';
+import { Conclusion, githubApiEndpoint, Status } from '../constants';
+import { localize } from './localize';
 import { requestUtils } from './requestUtils';
 
 // tslint:disable-next-line:no-reserved-keywords
@@ -104,18 +104,17 @@ export async function getGitHubQuickPicksWithLoadMore<T>(cache: ICachedQuickPick
     }
 }
 
-// a context should be passed in if many subsequential GitHub requests are made (i.e. the create SWA wizard)
-export async function createGitHubRequestOptions(context: IStaticWebAppWizardContext | undefined, url: string, method: HttpMethods = 'GET'): Promise<gitHubWebResource> {
-    const requestOptions: gitHubWebResource = await requestUtils.getDefaultRequest(url, new TokenCredentials(await getGitHubAccessToken(context)), method);
+export async function createGitHubRequestOptions(gitHubAccessToken: string, url: string, method: HttpMethods = 'GET'): Promise<gitHubWebResource> {
+    const requestOptions: gitHubWebResource = await requestUtils.getDefaultRequest(url, new TokenCredentials(gitHubAccessToken), method);
     requestOptions.headers.Accept = 'application/vnd.github.v3+json';
     requestOptions.resolveWithFullResponse = true;
 
     return requestOptions;
 }
 
-export async function getGitHubAccessToken(context?: IStaticWebAppWizardContext): Promise<string> {
+export async function getGitHubAccessToken(): Promise<string> {
     const scopes: string[] = ['repo', 'workflow', 'admin:public_key'];
-    return context?.accessToken || (await vscode.authentication.getSession('github', scopes, { createIfNone: true })).accessToken;
+    return (await vscode.authentication.getSession('github', scopes, { createIfNone: true })).accessToken;
 
 }
 
@@ -129,10 +128,13 @@ export async function tryGetRemote(): Promise<string | undefined> {
 
             if (originUrl !== undefined) {
                 const { owner, name } = getRepoFullname(originUrl);
-                const repoReq: requestUtils.Request = await createGitHubRequestOptions(undefined, `${githubApiEndpoint}/repos/${owner}/${name}`);
+                const token: string = await getGitHubAccessToken();
+                const repoReq: requestUtils.Request = await createGitHubRequestOptions(token, `${githubApiEndpoint}/repos/${owner}/${name}`);
                 const repoRes: IncomingMessage & { body: string } = await requestUtils.sendRequest(repoReq);
+
                 // the GitHub API response has a lot more properties than this, but these are the only ones we care about
                 const bodyJson: { html_url: string; permissions: { admin: boolean } } = <{ html_url: string; permissions: { admin: boolean } }>JSON.parse(repoRes.body);
+
                 // to create a workflow, the user needs admin access so if it's not true, it will fail
                 if (bodyJson.permissions.admin) {
                     return bodyJson.html_url;
@@ -155,4 +157,30 @@ export function getRepoFullname(gitUrl: string): { owner: string; name: string }
 export function isUser(orgData: gitHubOrgData | undefined): boolean {
     // if there's no orgData, just assume that it's a user (but this shouldn't happen)
     return orgData ? orgData.type === 'User' : true;
+}
+
+export function convertConclusionToVerb(conclusion: Conclusion): string {
+    switch (conclusion) {
+        case 'success':
+            return localize('succeeded', 'succeeded');
+        case 'cancelled':
+            return localize('cancelled', 'cancelled');
+        case 'failure':
+            return localize('failed', 'failed');
+        case 'skipped':
+            return localize('skipped', 'skipped');
+        default:
+            return '';
+    }
+}
+
+export function convertStatusToVerb(status: Status): string {
+    switch (status) {
+        case 'in_progress':
+            return localize('started', 'started');
+        case 'queued':
+            return localize('queued', 'queued');
+        default:
+            return '';
+    }
 }
