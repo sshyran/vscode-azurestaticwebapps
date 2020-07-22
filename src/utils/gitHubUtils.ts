@@ -3,20 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// tslint:disable-next-line:no-require-imports
-import gitUrlParse = require('git-url-parse');
+import { UsersGetAuthenticatedResponseData } from '@octokit/types';
 import { HttpMethods, IncomingMessage, TokenCredentials } from 'ms-rest';
 import { Response } from 'request';
 import * as git from 'simple-git/promise';
-import { isArray } from 'util';
 import * as vscode from 'vscode';
 import { IAzureQuickPickItem } from 'vscode-azureextensionui';
 import { Conclusion, githubApiEndpoint, Status } from '../constants';
+import { OrgForAuthenticatedUserData } from '../gitHubTypings';
 import { localize } from './localize';
 import { requestUtils } from './requestUtils';
+import { getSingleRootFsPath } from './workspaceUtils';
+// tslint:disable-next-line:no-require-imports
+import gitUrlParse = require('git-url-parse');
 
 // tslint:disable-next-line:no-reserved-keywords
-export type gitHubOrgData = { login: string; repos_url: string; type: 'User' | 'Organization' };
 export type gitHubRepoData = { name: string; url: string; html_url: string; clone_url?: string; default_branch?: string };
 export type gitHubBranchData = { name: string };
 export type gitHubLink = { prev?: string; next?: string; last?: string; first?: string };
@@ -38,24 +39,21 @@ export async function getGitHubJsonResponse<T>(requestOptions: gitHubWebResource
 
 /**
  * @param label Property of JSON that will be used as the QuickPicks label
- * @param description Optional property of JSOsN that will be used as QuickPicks description
+ * @param description Optional property of JSON that will be used as QuickPicks description
  * @param data Optional property of JSON that will be used as QuickPicks data saved as a NameValue pair
  */
-export function createQuickPickFromJsons<T>(jsons: T[], label: string): IAzureQuickPickItem<T>[] {
+export function createQuickPickFromJsons<T>(data: T[], label: string): IAzureQuickPickItem<T>[] {
     const quickPicks: IAzureQuickPickItem<T>[] = [];
-    if (!isArray(jsons)) {
-        jsons = [jsons];
-    }
 
-    for (const json of jsons) {
-        if (!json[label]) {
+    for (const d of data) {
+        if (!d[label]) {
             // skip this JSON if it doesn't have this label
             continue;
         }
 
         quickPicks.push({
-            label: <string>json[label],
-            data: json
+            label: <string>d[label],
+            data: d
         });
     }
 
@@ -115,15 +113,14 @@ export async function createGitHubRequestOptions(gitHubAccessToken: string, url:
 export async function getGitHubAccessToken(): Promise<string> {
     const scopes: string[] = ['repo', 'workflow', 'admin:public_key'];
     return (await vscode.authentication.getSession('github', scopes, { createIfNone: true })).accessToken;
-
 }
 
 export async function tryGetRemote(): Promise<string | undefined> {
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length === 1) {
-        // only try to get remote if there's only a single workspace opened
-        const localGit: git.SimpleGit = git(vscode.workspace.workspaceFolders[0].uri.fsPath);
-
-        try {
+    try {
+        const localProjectPath: string | undefined = getSingleRootFsPath();
+        if (localProjectPath) {
+            // only try to get remote if there's only a single workspace opened
+            const localGit: git.SimpleGit = git(localProjectPath);
             const originUrl: string | void = await localGit.remote(['get-url', 'origin']);
 
             if (originUrl !== undefined) {
@@ -140,12 +137,25 @@ export async function tryGetRemote(): Promise<string | undefined> {
                     return bodyJson.html_url;
                 }
             }
-
-        } catch (error) {
-            // don't do anything for an error, this shouldn't prevent creation
         }
+    } catch (error) {
+        // don't do anything for an error, this shouldn't prevent creation
     }
+    return;
+}
 
+export async function tryGetBranch(): Promise<string | undefined> {
+    try {
+        const localProjectPath: string | undefined = getSingleRootFsPath();
+        if (localProjectPath) {
+            // only try to get branch if there's only a single workspace opened
+            const localGit: git.SimpleGit = git(localProjectPath);
+
+            return (await localGit.branch()).current;
+        }
+    } catch (error) {
+        // an error here should be ignored, it probably means that they don't have git installed
+    }
     return;
 }
 
@@ -154,9 +164,9 @@ export function getRepoFullname(gitUrl: string): { owner: string; name: string }
     return { owner: parsedUrl.owner, name: parsedUrl.name };
 }
 
-export function isUser(orgData: gitHubOrgData | undefined): boolean {
+export function isUser(orgData: UsersGetAuthenticatedResponseData | OrgForAuthenticatedUserData | undefined): boolean {
     // if there's no orgData, just assume that it's a user (but this shouldn't happen)
-    return orgData ? orgData.type === 'User' : true;
+    return !!orgData && 'type' in orgData && orgData.type === 'User';
 }
 
 export function convertConclusionToVerb(conclusion: Conclusion): string {
