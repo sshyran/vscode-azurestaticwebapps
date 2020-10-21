@@ -25,6 +25,7 @@ import { openGitHubRepo } from './github/openGitHubRepo';
 import { showActions } from './github/showActions';
 import { openInPortal } from './openInPortal';
 import { openYAMLConfigFile } from './openYAMLConfigFile';
+import { addRoutesFile } from './routes/addRoutesFile';
 import { viewProperties } from './viewProperties';
 
 export function registerCommands(): void {
@@ -53,4 +54,5 @@ export function registerCommands(): void {
     registerCommand('staticWebApps.toggleAppSettingVisibility', async (_context: IActionContext, node: AppSettingTreeItem) => { await node.toggleValueVisibility(); }, 250);
     registerCommand('staticWebApps.showDocumentation', async (_context: IActionContext) => { await openUrl('https://aka.ms/AA92xai'); });
     registerCommand('staticWebApps.openYAMLConfigFile', openYAMLConfigFile);
+    registerCommand('staticWebApps.addRoutesFile', async (_context: IActionContext) => { await addRoutesFile(); });
 }

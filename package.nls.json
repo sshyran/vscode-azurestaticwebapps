@@ -31,5 +31,6 @@
     "staticWebApps.action.rerun": "Rerun Action...",
     "staticWebApps.action.cancel": "Cancel Action...",
     "staticWebApps.showDocumentation": "Documentation",
-    "staticWebApps.openYAMLConfigFile": "Edit Configuration..."
+    "staticWebApps.openYAMLConfigFile": "Edit Configuration...",
+    "staticWebApps.addRoutesFile": "Add routes.json File"
 }
