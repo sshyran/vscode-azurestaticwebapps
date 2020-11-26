@@ -6,6 +6,7 @@
 import { WebSiteManagementClient, WebSiteManagementModels } from "@azure/arm-appservice";
 import { AzExtTreeItem, AzureParentTreeItem, createAzureClient, GenericTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
 import { localize } from '../utils/localize';
+import { treeUtils } from "../utils/treeUtils";
 import { EnvironmentTreeItem } from "./EnvironmentTreeItem";
 import { FunctionTreeItem } from "./FunctionTreeItem";
 

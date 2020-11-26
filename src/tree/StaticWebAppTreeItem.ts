@@ -52,10 +52,6 @@ export class StaticWebAppTreeItem extends AzureParentTreeItem implements IAzureR
         return treeUtils.getThemedIconPath('azure-staticwebapps');
     }
 
-    public get repositoryUrl(): string {
-        return this.data.properties.repositoryUrl;
-    }
-
     public async loadMoreChildrenImpl(_clearCache: boolean, _context: IActionContext): Promise<AzExtTreeItem[]> {
         const client: WebSiteManagementClient = createAzureClient(this.root, WebSiteManagementClient);
 

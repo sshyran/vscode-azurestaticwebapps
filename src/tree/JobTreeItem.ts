@@ -5,12 +5,10 @@
 
 import { Octokit } from '@octokit/rest';
 import { ActionsGetJobForWorkflowRunResponseData } from '@octokit/types';
-import moment = require('moment');
 import { AzExtTreeItem, AzureParentTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
 import { createOctokitClient } from '../commands/github/createOctokitClient';
-import { getActionIconPath } from '../utils/actionUtils';
-import { convertConclusionToVerb, convertStatusToVerb, getRepoFullname } from '../utils/gitHubUtils';
-import { getTimeElapsedString } from '../utils/timeUtils';
+import { getActionDescription, getActionIconPath } from '../utils/actionUtils';
+import { getRepoFullname } from '../utils/gitHubUtils';
 import { ActionTreeItem } from './ActionTreeItem';
 import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
 import { StepTreeItem } from './StepTreeItem';
@@ -43,20 +41,11 @@ export class JobTreeItem extends AzureParentTreeItem implements IAzureResourceTr
     }
 
     public get description(): string {
-        if (this.data.conclusion) {
-            const elapsedTime: string = getTimeElapsedString(this.startedDate, this.completedDate);
-            return `${convertConclusionToVerb(this.data.conclusion)} ${moment(this.completedDate).fromNow()} in ${elapsedTime}`;
-        } else {
-            return `${convertStatusToVerb(this.data.status)} ${moment(this.startedDate).fromNow()}`;
-        }
+        return getActionDescription(this.data);
     }
 
-    private get startedDate(): Date {
+    public get startedDate(): Date {
         return new Date(this.data.started_at);
-    }
-
-    private get completedDate(): Date {
-        return new Date(this.data.completed_at);
     }
 
     public async loadMoreChildrenImpl(_clearCache: boolean, _context: IActionContext): Promise<AzExtTreeItem[]> {
