@@ -3,43 +3,29 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import moment = require('moment');
 import { AzureTreeItem, TreeItemIconPath } from "vscode-azureextensionui";
-import { Conclusion, Status } from '../constants';
-import { convertConclusionToVerb, convertStatusToVerb } from '../utils/gitHubUtils';
-import { getTimeElapsedString } from '../utils/timeUtils';
-import { treeUtils } from "../utils/treeUtils";
+import { ActionWorkflowStepData } from '../gitHubTypings';
+import { getActionDescription, getActionIconPath } from '../utils/actionUtils';
 import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
 import { JobTreeItem } from './JobTreeItem';
 
-export type GitHubStep = {
-    name: string;
-    status: Status;
-    conclusion: Conclusion;
-    // tslint:disable-next-line: no-reserved-keywords
-    number: number;
-    started_at: string;
-    completed_at: string;
-};
-
 export class StepTreeItem extends AzureTreeItem implements IAzureResourceTreeItem {
-
     public static contextValue: string = 'azureStaticStep';
     public readonly contextValue: string = StepTreeItem.contextValue;
     public parent: JobTreeItem;
-    public data: GitHubStep;
+    public data: ActionWorkflowStepData;
 
-    constructor(parent: JobTreeItem, data: GitHubStep) {
+    constructor(parent: JobTreeItem, data: ActionWorkflowStepData) {
         super(parent);
         this.data = data;
     }
 
     public get iconPath(): TreeItemIconPath {
-        return treeUtils.getActionIconPath(this.data.status, this.data.conclusion);
+        return getActionIconPath(this.data);
     }
 
     public get id(): string {
-        return `${this.parent.id}/${this.data.name}`;
+        return this.data.number.toString();
     }
 
     public get name(): string {
@@ -51,19 +37,6 @@ export class StepTreeItem extends AzureTreeItem implements IAzureResourceTreeIte
     }
 
     public get description(): string {
-        if (this.data.conclusion) {
-            const elapsedTime: string = getTimeElapsedString(this.startedDate, this.completedDate);
-            return `${convertConclusionToVerb(this.data.conclusion)} in ${elapsedTime}`;
-        } else {
-            return `${convertStatusToVerb(this.data.status)} ${this.startedDate.getTime() === 0 ? '' : moment(this.startedDate).fromNow()}`;
-        }
-    }
-
-    private get startedDate(): Date {
-        return new Date(this.data.started_at);
-    }
-
-    private get completedDate(): Date {
-        return new Date(this.data.completed_at);
+        return getActionDescription(this.data);
     }
 }

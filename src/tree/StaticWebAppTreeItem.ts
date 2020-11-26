@@ -3,69 +3,44 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IncomingMessage } from 'ms-rest';
-import * as vscode from 'vscode';
-import { AzExtTreeItem, AzureParentTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
+import { WebSiteManagementClient, WebSiteManagementModels } from "@azure/arm-appservice";
+import { ProgressLocation, window } from "vscode";
+import { AzExtTreeItem, AzureParentTreeItem, createAzureClient, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
 import { productionEnvironmentName } from '../constants';
 import { ext } from "../extensionVariables";
-import { delay } from '../utils/delay';
+import { getResourceGroupFromId, pollAzureAsyncOperation } from "../utils/azureUtils";
 import { getRepoFullname } from '../utils/gitHubUtils';
 import { localize } from "../utils/localize";
+import { nonNullProp } from "../utils/nonNull";
 import { openUrl } from '../utils/openUrl';
-import { requestUtils } from "../utils/requestUtils";
 import { treeUtils } from "../utils/treeUtils";
-import { EnvironmentTreeItem, StaticEnvironment } from './EnvironmentTreeItem';
+import { EnvironmentTreeItem } from './EnvironmentTreeItem';
 import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
-
-// using a custom defined type because the type provided by WebsiteManagementModels.StaticSiteARMResource doesn't match the actual payload
-export type StaticWebApp = {
-    id: string;
-    location: string;
-    name: string;
-    properties: {
-        defaultHostname: string;
-        repositoryUrl: string;
-        branch: string;
-        customDomains: string[];
-    };
-    sku: {
-        name: string;
-        tier: string;
-    };
-    // tslint:disable-next-line:no-reserved-keywords
-    type: string;
-};
-
-type AzureAsyncOperationResponse = {
-    id?: string;
-    status: string;
-    error?: {
-        code: string;
-        message: string;
-    };
-};
 
 export class StaticWebAppTreeItem extends AzureParentTreeItem implements IAzureResourceTreeItem {
     public static contextValue: string = 'azureStaticWebApp';
     public readonly contextValue: string = StaticWebAppTreeItem.contextValue;
-    public readonly data: StaticWebApp;
+    public readonly data: WebSiteManagementModels.StaticSiteARMResource;
     public readonly childTypeLabel: string = localize('environment', 'Environment');
 
-    constructor(parent: AzureParentTreeItem, ss: StaticWebApp) {
+    public name: string;
+    public id: string;
+    public resourceGroup: string;
+    public label: string;
+    public repositoryUrl: string;
+    public branch: string;
+    public defaultHostname: string;
+
+    constructor(parent: AzureParentTreeItem, ss: WebSiteManagementModels.StaticSiteARMResource) {
         super(parent);
         this.data = ss;
-    }
-
-    public get name(): string {
-        return this.data.name;
-    }
-
-    public get id(): string {
-        return this.data.id;
-    }
-
-    public get label(): string {
-        return this.data.name;
+        this.name = nonNullProp(this.data, 'name');
+        this.id = nonNullProp(this.data, 'id');
+        this.resourceGroup = getResourceGroupFromId(this.id);
+        this.label = this.name;
+        this.repositoryUrl = nonNullProp(this.data, 'repositoryUrl');
+        this.branch = nonNullProp(this.data, 'branch');
+        this.defaultHostname = nonNullProp(this.data, 'defaultHostname');
     }
 
     public get description(): string | undefined {
@@ -82,13 +57,16 @@ export class StaticWebAppTreeItem extends AzureParentTreeItem implements IAzureR
     }
 
     public async loadMoreChildrenImpl(_clearCache: boolean, _context: IActionContext): Promise<AzExtTreeItem[]> {
-        const requestOptions: requestUtils.Request = await requestUtils.getDefaultAzureRequest(`${this.id}/builds?api-version=2019-12-01-preview`, this.root);
-        const envs: StaticEnvironment[] = (<{ value: StaticEnvironment[] }>JSON.parse(await requestUtils.sendRequest(requestOptions))).value;
+        const client: WebSiteManagementClient = createAzureClient(this.root, WebSiteManagementClient);
+
+        const envs: WebSiteManagementModels.StaticSiteBuildCollection = await client.staticSites.getStaticSiteBuilds(this.resourceGroup, this.name);
 
         return await this.createTreeItemsWithErrorHandling(
             envs,
             'invalidStaticEnvironment',
-            env => new EnvironmentTreeItem(this, env),
+            async (env: WebSiteManagementModels.StaticSiteBuildARMResource) => {
+                return await EnvironmentTreeItem.createEnvironmentTreeItem(this, env);
+            },
             env => env.buildId
         );
     }
@@ -109,50 +87,20 @@ export class StaticWebAppTreeItem extends AzureParentTreeItem implements IAzureR
     }
 
     public async deleteTreeItemImpl(): Promise<void> {
-        const requestOptions: requestUtils.Request = await requestUtils.getDefaultAzureRequest(`${this.id}?api-version=2019-12-01-preview`, this.root, 'DELETE');
         const deleting: string = localize('deleting', 'Deleting static web app "{0}"...', this.name);
-
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: deleting }, async (): Promise<void> => {
+        await window.withProgress({ location: ProgressLocation.Notification, title: deleting }, async (): Promise<void> => {
             ext.outputChannel.appendLog(deleting);
-            await this.pollAzureAsyncOperation(requestOptions);
+            const client: WebSiteManagementClient = createAzureClient(this.root, WebSiteManagementClient);
+            // the client API call only awaits the call, but doesn't poll for the result so we handle that ourself
+            await pollAzureAsyncOperation(await client.staticSites.deleteStaticSite(this.resourceGroup, this.name), this.root.credentials);
 
             const deleteSucceeded: string = localize('deleteSucceeded', 'Successfully deleted static web app "{0}".', this.name);
-            vscode.window.showInformationMessage(deleteSucceeded);
+            window.showInformationMessage(deleteSucceeded);
             ext.outputChannel.appendLog(deleteSucceeded);
         });
     }
 
     public async browse(): Promise<void> {
-        await openUrl(`https://${this.data.properties.defaultHostname}`);
-    }
-
-    //https://docs.microsoft.com/en-us/azure/azure-resource-manager/management/async-operations
-    private async pollAzureAsyncOperation(asyncOperationRequest: requestUtils.Request): Promise<void> {
-        asyncOperationRequest.resolveWithFullResponse = true;
-        const asyncAzureRes: IncomingMessage = await requestUtils.sendRequest(asyncOperationRequest);
-        const monitorStatusUrl: string = <string>asyncAzureRes.headers['azure-asyncoperation'];
-        // the url already includes resourceManagerEndpointUrl, so just use getDefaultRequest instead
-        const monitorStatusReq: requestUtils.Request = await requestUtils.getDefaultRequest(monitorStatusUrl, this.root.credentials);
-
-        const timeoutInSeconds: number = 60;
-        const maxTime: number = Date.now() + timeoutInSeconds * 1000;
-        while (Date.now() < maxTime) {
-            const statusJsonString: string = await requestUtils.sendRequest(monitorStatusReq);
-            let operationResponse: AzureAsyncOperationResponse | undefined;
-            try {
-                operationResponse = <AzureAsyncOperationResponse>JSON.parse(statusJsonString);
-            } catch {
-                // swallow JSON parsing errors
-            }
-
-            if (operationResponse?.status !== 'InProgress') {
-                if (operationResponse?.error) {
-                    throw operationResponse.error;
-                }
-                return;
-            }
-
-            await delay(2000);
-        }
+        await openUrl(`https://${this.defaultHostname}`);
     }
 }

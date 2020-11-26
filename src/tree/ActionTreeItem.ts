@@ -3,42 +3,31 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IncomingMessage } from 'ms-rest';
-import { requestUtils } from 'vscode-azureappservice/out/src/utils/requestUtils';
+import { ActionsGetWorkflowRunResponseData } from '@octokit/types';
 import { AzExtTreeItem, AzureParentTreeItem, IActionContext, TreeItemIconPath } from "vscode-azureextensionui";
-import { Conclusion, githubApiEndpoint, Status } from '../constants';
-import { createGitHubRequestOptions, getGitHubAccessToken, getRepoFullname, gitHubWebResource } from '../utils/gitHubUtils';
-import { treeUtils } from '../utils/treeUtils';
+import { ensureStatus, getActionIconPath } from '../utils/actionUtils';
+import { getRepoFullname } from '../utils/gitHubUtils';
 import { ActionsTreeItem } from "./ActionsTreeItem";
 import { IAzureResourceTreeItem } from './IAzureResourceTreeItem';
-import { GitHubJob, JobTreeItem } from './JobTreeItem';
-
-export type GitHubAction = {
-    id: number;
-    conclusion: Conclusion;
-    event: string;
-    head_branch: string;
-    status: Status;
-    head_commit: { message: string };
-    url: string;
-    html_url: string;
-    rerun_url: string;
-    cancel_url: string;
-};
+import { JobTreeItem } from './JobTreeItem';
 
 export class ActionTreeItem extends AzureParentTreeItem implements IAzureResourceTreeItem {
-    public static contextValue: string = 'azureStaticAction';
-    public readonly contextValue: string = ActionTreeItem.contextValue;
+    public static contextValueCompleted: string = 'azureStaticActionCompleted';
+    public static contextValueInProgress: string = 'azureStaticActionInProgress';
     public parent: ActionsTreeItem;
-    public data: GitHubAction;
+    public data: ActionsGetWorkflowRunResponseData;
 
-    constructor(parent: ActionsTreeItem, data: GitHubAction) {
+    constructor(parent: ActionsTreeItem, data: ActionsGetWorkflowRunResponseData) {
         super(parent);
         this.data = data;
     }
 
+    public get contextValue(): string {
+        return ensureStatus(this.data) === 'completed' ? ActionTreeItem.contextValueCompleted : ActionTreeItem.contextValueInProgress;
+    }
+
     public get iconPath(): TreeItemIconPath {
-        return treeUtils.getActionIconPath(this.data.status, this.data.conclusion);
+        return getActionIconPath(this.data);
     }
 
     public get id(): string {
@@ -59,13 +48,15 @@ export class ActionTreeItem extends AzureParentTreeItem implements IAzureResourc
 
     public async loadMoreChildrenImpl(_clearCache: boolean, _context: IActionContext): Promise<AzExtTreeItem[]> {
         const { owner, name } = getRepoFullname(this.parent.repositoryUrl);
-        const token: string = await getGitHubAccessToken();
-        const requestOption: gitHubWebResource = await createGitHubRequestOptions(token, `${githubApiEndpoint}/repos/${owner}/${name}/actions/runs/${this.data.id}/jobs`);
-        const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(requestOption);
-        const gitHubJobs: { jobs: GitHubJob[] } = <{ jobs: GitHubJob[] }>JSON.parse(githubResponse.body);
-        return gitHubJobs.jobs.map((job => {
-            return new JobTreeItem(this, job);
-        }));
+        const octokitClient: Octokit = await createOctokitClient();
+        const response: OctokitResponse<ActionsListJobsForWorkflowRunResponseData> = await octokitClient.actions.listJobsForWorkflowRun({ owner: owner, repo: name, run_id: this.data.id });
+
+        return await this.createTreeItemsWithErrorHandling(
+            response.data.jobs,
+            'invalidJobTreeItem',
+            (job) => new JobTreeItem(this, job),
+            job => job.name
+        );
     }
 
     public hasMoreChildrenImpl(): boolean {
@@ -73,9 +64,18 @@ export class ActionTreeItem extends AzureParentTreeItem implements IAzureResourc
     }
 
     public async refreshImpl(): Promise<void> {
-        const token: string = await getGitHubAccessToken();
-        const gitHubRequest: gitHubWebResource = await createGitHubRequestOptions(token, this.data.url);
-        const githubResponse: IncomingMessage & { body: string } = await requestUtils.sendRequest(gitHubRequest);
-        this.data = <GitHubAction>JSON.parse(githubResponse.body);
+        const { owner, name } = getRepoFullname(this.parent.repositoryUrl);
+        const octokitClient: Octokit = await createOctokitClient();
+        const response: OctokitResponse<ActionsGetWorkflowRunResponseData> = await octokitClient.actions.getWorkflowRun({ owner: owner, repo: name, run_id: this.data.id });
+        this.data = response.data;
+    }
+
+    public compareChildrenImpl(ti1: JobTreeItem, ti2: JobTreeItem): number {
+        // sort by the jobs that started first
+        return ti1.startedDate.getTime() - ti2.startedDate.getTime();
+    }
+
+    public isAncestorOfImpl(contextValue: string | RegExp): boolean {
+        return contextValue !== ActionTreeItem.contextValueCompleted && contextValue !== ActionTreeItem.contextValueInProgress;
     }
 }
